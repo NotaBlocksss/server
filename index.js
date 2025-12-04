@@ -25,21 +25,38 @@ const getAccessToken = async () => {
 
 app.post('/send-notification', async (req, res) => {
   try {
+    console.log('📨 Recibida solicitud de notificación');
     const { tokens, notification, data } = req.body;
 
+    console.log('📋 Tokens recibidos:', tokens?.length || 0);
+    console.log('📋 Notification:', notification);
+    console.log('📋 Data:', data);
+
     if (!tokens || !Array.isArray(tokens) || tokens.length === 0) {
+      console.log('❌ Error: Tokens requeridos');
       return res.status(400).json({ error: 'Tokens requeridos' });
     }
 
     if (!notification || !notification.title || !notification.body) {
+      console.log('❌ Error: Notification title y body requeridos');
       return res.status(400).json({ error: 'Notification title y body requeridos' });
     }
 
+    if (!PROJECT_ID || !SERVICE_ACCOUNT_EMAIL || !PRIVATE_KEY) {
+      console.log('❌ Error: Variables de entorno no configuradas');
+      return res.status(500).json({ error: 'Configuración del servidor incompleta' });
+    }
+
+    console.log('🔑 Obteniendo access token...');
     const accessToken = await getAccessToken();
+    console.log('✅ Access token obtenido');
 
     const results = [];
-    for (const token of tokens) {
+    for (let i = 0; i < tokens.length; i++) {
+      const token = tokens[i];
       try {
+        console.log(`📤 Enviando notificación ${i + 1}/${tokens.length}...`);
+        
         const message = {
           message: {
             token: token,
@@ -61,30 +78,36 @@ app.post('/send-notification', async (req, res) => {
           },
         };
 
-        const response = await fetch(
-          `https://fcm.googleapis.com/v1/projects/${PROJECT_ID}/messages:send`,
-          {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${accessToken}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(message),
-          }
-        );
+        const fcmUrl = `https://fcm.googleapis.com/v1/projects/${PROJECT_ID}/messages:send`;
+        console.log(`🔗 URL FCM: ${fcmUrl}`);
+        
+        const response = await fetch(fcmUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(message),
+        });
 
         if (!response.ok) {
           const errorText = await response.text();
-          results.push({ token, success: false, error: errorText });
+          console.log(`❌ Error en token ${i + 1}: ${errorText}`);
+          results.push({ token: token.substring(0, 20) + '...', success: false, error: errorText });
         } else {
-          results.push({ token, success: true });
+          const responseData = await response.json();
+          console.log(`✅ Notificación ${i + 1} enviada exitosamente`);
+          results.push({ token: token.substring(0, 20) + '...', success: true, response: responseData });
         }
       } catch (error) {
-        results.push({ token, success: false, error: error.message });
+        console.log(`❌ Error en token ${i + 1}: ${error.message}`);
+        results.push({ token: token.substring(0, 20) + '...', success: false, error: error.message });
       }
     }
 
     const successCount = results.filter(r => r.success).length;
+    console.log(`📊 Resultados: ${successCount}/${tokens.length} exitosos`);
+    
     res.json({
       success: true,
       sent: successCount,
@@ -92,6 +115,8 @@ app.post('/send-notification', async (req, res) => {
       results: results,
     });
   } catch (error) {
+    console.log('❌ Error general:', error.message);
+    console.error(error);
     res.status(500).json({ error: error.message });
   }
 });
